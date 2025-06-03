@@ -375,10 +375,12 @@ class LLMEngine:
                                                      self.cache_config)
 
         self.tracer = None
+        print("[Testing OpenTelemetry tracing]")
         if self.observability_config.otlp_traces_endpoint:
             self.tracer = init_tracer(
                 "vllm.llm_engine",
-                self.observability_config.otlp_traces_endpoint)
+                self.observability_config.otlp_traces_endpoint
+            )
 
         # Create sequence output processor, e.g. for beam search or
         # speculative decoding.
@@ -496,6 +498,7 @@ class LLMEngine:
         engine_cls = cls
         if envs.VLLM_USE_V1:
             from vllm.v1.engine.llm_engine import LLMEngine as V1LLMEngine
+            print("Using V1 LLMEngine")
             engine_cls = V1LLMEngine
 
         return engine_cls.from_vllm_config(

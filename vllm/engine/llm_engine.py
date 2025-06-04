@@ -972,9 +972,7 @@ class LLMEngine:
             seq_group.update_num_computed_tokens(
                 seq_group_meta.token_chunk_size)
 
-    def _process_model_outputs(self,
-                               ctx: SchedulerContext,
-                               request_id: Optional[str] = None) -> None:
+    def _process_model_outputs(self, ctx: SchedulerContext, request_id: Optional[str] = None) -> None:
         """Apply the model output to the sequences in the scheduled seq groups
         and return responses.
 
@@ -1198,9 +1196,10 @@ class LLMEngine:
         # For non-async case, the stats are done in the
         # LLMEngine/AsyncLLMEngine directly
         if is_async:
+            print("LLMEngine _process_model_outputs do_tracing")
+            
             # Log stats.
-            self.do_log_stats(scheduler_outputs, outputs, finished_before,
-                              skip)
+            self.do_log_stats(scheduler_outputs, outputs, finished_before, skip)
 
             # Tracing
             self.do_tracing(scheduler_outputs, finished_before)
@@ -1439,12 +1438,14 @@ class LLMEngine:
                 else seq_group_metadata_list[0].state.num_steps == 1
 
             # Add results to the output_queue
-            ctx.append_output(outputs=outputs,
-                              seq_group_metadata_list=seq_group_metadata_list,
-                              scheduler_outputs=scheduler_outputs,
-                              is_async=allow_async_output_proc,
-                              is_last_step=True,
-                              is_first_step_output=is_first_step_output)
+            ctx.append_output(
+                outputs=outputs,
+                seq_group_metadata_list=seq_group_metadata_list,
+                scheduler_outputs=scheduler_outputs,
+                is_async=allow_async_output_proc,
+                is_last_step=True,
+                is_first_step_output=is_first_step_output
+            )
 
             if outputs and allow_async_output_proc:
                 assert len(outputs) == 1, (
@@ -1917,21 +1918,43 @@ class LLMEngine:
     def is_tracing_enabled(self) -> bool:
         return self.tracer is not None
 
-    def do_tracing(self,
-                   scheduler_outputs: SchedulerOutputs,
-                   finished_before: Optional[List[int]] = None) -> None:
+    def do_tracing(self, scheduler_outputs: SchedulerOutputs, finished_before: Optional[List[int]] = None) -> None:
         if self.tracer is None:
             return
 
-        for idx, scheduled_seq_group in enumerate(
-                scheduler_outputs.scheduled_seq_groups):
+        for idx, scheduled_seq_group in enumerate(scheduler_outputs.scheduled_seq_groups):
             # Skip double tracing when using async output proc
             if finished_before and idx in finished_before:
                 continue
 
             seq_group = scheduled_seq_group.seq_group
             if seq_group.is_finished():
+                print("do tracing, create_trace_span")
                 self.create_trace_span(seq_group)
+    
+    def do_tracing_per_step(
+        self, 
+        scheduler_outputs: SchedulerOutputs, 
+        step_start_time: int
+    ) -> None:
+        
+        if self.tracer is None:
+            return
+        
+        for _, scheduled_seq_group in enumerate(scheduler_outputs.scheduled_seq_groups):
+            seq_group = scheduled_seq_group.seq_group
+            trace_context = extract_trace_context(seq_group.trace_headers)
+            with self.tracer.start_as_current_span(
+                name="llm_request",
+                kind=SpanKind.SERVER,
+                context=trace_context,
+                start_time=step_start_time,
+            ) as seq_step_span:
+                seq_step_span.set_attribute(
+                    SpanAttributes.GEN_AI_REQUEST_ID,
+                    seq_group.request_id
+                )
+                
 
     def create_trace_span(self, seq_group: SequenceGroup) -> None:
         if self.tracer is None or seq_group.sampling_params is None:
@@ -1941,10 +1964,12 @@ class LLMEngine:
         trace_context = extract_trace_context(seq_group.trace_headers)
 
         with self.tracer.start_as_current_span(
-                "llm_request",
+                name="llm_request",
                 kind=SpanKind.SERVER,
                 context=trace_context,
-                start_time=arrival_time_nano_seconds) as seq_span:
+                start_time=arrival_time_nano_seconds
+            ) as seq_span:
+            
             metrics = seq_group.metrics
             ttft = metrics.first_token_time - metrics.arrival_time
             e2e_time = metrics.finished_time - metrics.arrival_time

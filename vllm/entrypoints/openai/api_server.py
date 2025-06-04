@@ -142,8 +142,8 @@ async def lifespan(app: FastAPI):
 
 @asynccontextmanager
 async def build_async_engine_client(
-        args: Namespace) -> AsyncIterator[EngineClient]:
-
+    args: Namespace
+) -> AsyncIterator[EngineClient]:
     # Context manager to handle engine_client lifecycle
     # Ensures everything is shutdown and cleaned up on error/exit
     engine_args = AsyncEngineArgs.from_cli_args(args)
@@ -204,7 +204,8 @@ async def build_async_engine_client_from_engine_args(
                 vllm_config=vllm_config,
                 usage_context=usage_context,
                 disable_log_requests=engine_args.disable_log_requests,
-                disable_log_stats=engine_args.disable_log_stats)
+                disable_log_stats=engine_args.disable_log_stats
+            )
             yield engine_client
         finally:
             if engine_client and hasattr(engine_client, "shutdown"):
@@ -218,8 +219,7 @@ async def build_async_engine_client_from_engine_args(
             #   cleaned up upon exit.
             global prometheus_multiproc_dir
             prometheus_multiproc_dir = tempfile.TemporaryDirectory()
-            os.environ[
-                "PROMETHEUS_MULTIPROC_DIR"] = prometheus_multiproc_dir.name
+            os.environ["PROMETHEUS_MULTIPROC_DIR"] = prometheus_multiproc_dir.name
         else:
             logger.warning(
                 "Found PROMETHEUS_MULTIPROC_DIR was set by user. "
@@ -1007,10 +1007,12 @@ if envs.VLLM_ALLOW_RUNTIME_LORA_UPDATING:
 
 def build_app(args: Namespace) -> FastAPI:
     if args.disable_fastapi_docs:
-        app = FastAPI(openapi_url=None,
-                      docs_url=None,
-                      redoc_url=None,
-                      lifespan=lifespan)
+        app = FastAPI(
+            openapi_url=None,
+            docs_url=None,
+            redoc_url=None,
+            lifespan=lifespan
+            )
     else:
         app = FastAPI(lifespan=lifespan)
     app.include_router(router)

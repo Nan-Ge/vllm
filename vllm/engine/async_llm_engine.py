@@ -346,15 +346,22 @@ class _AsyncLLMEngine(LLMEngine):
                 finished_requests_ids=finished_requests_ids,
                 # We use ExecuteModelRequest to pass the last sampled_token_ids
                 # to each of the non-last PP stages for in-place prepare_input.
-                last_sampled_token_ids=last_sampled_token_ids)
+                last_sampled_token_ids=last_sampled_token_ids
+            )
 
             if allow_async_output_proc:
                 execute_model_req.async_callback = self.async_callbacks[
                     virtual_engine]
 
             # Execute the model.
-            outputs = await self.model_executor.execute_model_async(
-                execute_model_req)
+            s_time = time.time_ns()
+            outputs = await self.model_executor.execute_model_async(execute_model_req)
+            
+            self.do_tracing_per_step(
+                scheduler_outputs=scheduler_outputs,
+                step_start_time=s_time
+            )
+            
 
             # we need to do this here so that last step's sampled_token_ids can
             # be passed to the next iteration for PP.
@@ -382,22 +389,24 @@ class _AsyncLLMEngine(LLMEngine):
             is_first_step_output: bool = False if not seq_group_metadata_list \
                 else seq_group_metadata_list[0].state.num_steps == 1
 
-            ctx.append_output(outputs=outputs,
-                              seq_group_metadata_list=seq_group_metadata_list,
-                              scheduler_outputs=scheduler_outputs,
-                              is_async=allow_async_output_proc,
-                              is_last_step=True,
-                              is_first_step_output=is_first_step_output)
+            ctx.append_output(
+                outputs=outputs,
+                seq_group_metadata_list=seq_group_metadata_list,
+                scheduler_outputs=scheduler_outputs,
+                is_async=allow_async_output_proc,
+                is_last_step=True,
+                is_first_step_output=is_first_step_output
+            )
 
             if outputs and allow_async_output_proc:
-                assert len(
-                    outputs
-                ) == 1, "Async postprocessor expects only a single output set"
+                assert len(outputs) == 1, "Async postprocessor expects only a single output set"
                 self._advance_to_next_step(
                     outputs[0], seq_group_metadata_list,
                     scheduler_outputs.scheduled_seq_groups)
 
             if not allow_async_output_proc:
+                print("AsyncLLMEngine step_async do_tracing")
+                
                 self._process_model_outputs(ctx=ctx)
 
                 # Log stats.

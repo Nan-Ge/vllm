@@ -767,6 +767,8 @@ class SequenceGroup:
         self.priority = priority
 
         self.cached_request_output = None
+        
+        self.step_cnt = 0  # counter for vLLM step
 
     @property
     def prompt(self) -> Optional[str]:

@@ -1196,13 +1196,8 @@ class LLMEngine:
         # For non-async case, the stats are done in the
         # LLMEngine/AsyncLLMEngine directly
         if is_async:
-            print("LLMEngine _process_model_outputs do_tracing")
-            
-            # Log stats.
-            self.do_log_stats(scheduler_outputs, outputs, finished_before, skip)
-
-            # Tracing
-            self.do_tracing(scheduler_outputs, finished_before)
+            self.do_log_stats(scheduler_outputs, outputs, finished_before, skip)  # Log stats.
+            self.do_tracing(scheduler_outputs, finished_before)  # Tracing
 
         return None
 
@@ -1929,7 +1924,7 @@ class LLMEngine:
 
             seq_group = scheduled_seq_group.seq_group
             if seq_group.is_finished():
-                print("do tracing, create_trace_span")
+                logger.info(f"Finished seq_group {seq_group.request_id}, create_trace_span")
                 self.create_trace_span(seq_group)
     
     def do_tracing_per_step(
@@ -1943,13 +1938,26 @@ class LLMEngine:
         
         for _, scheduled_seq_group in enumerate(scheduler_outputs.scheduled_seq_groups):
             seq_group = scheduled_seq_group.seq_group
+            
+            if seq_group.is_finished():  # 如果请求已经推理结束，跳过后面的逻辑
+                continue
+            
+            seq_group.step_cnt += 1
+            
+            if seq_group.is_prefill():
+                span_name = f"prefill_step_{seq_group.step_cnt}"
+            else:
+                span_name = f"decode_step_{seq_group.step_cnt}"
+            
             trace_context = extract_trace_context(seq_group.trace_headers)
+            
             with self.tracer.start_as_current_span(
-                name="llm_request",
+                name=span_name,
                 kind=SpanKind.SERVER,
                 context=trace_context,
                 start_time=step_start_time,
             ) as seq_step_span:
+                
                 seq_step_span.set_attribute(
                     SpanAttributes.GEN_AI_REQUEST_ID,
                     seq_group.request_id

@@ -350,19 +350,18 @@ class _AsyncLLMEngine(LLMEngine):
             )
 
             if allow_async_output_proc:
-                execute_model_req.async_callback = self.async_callbacks[
-                    virtual_engine]
+                execute_model_req.async_callback = self.async_callbacks[virtual_engine]
 
             # Execute the model.
             s_time = time.time_ns()
             outputs = await self.model_executor.execute_model_async(execute_model_req)
             
+            # Per-step tracing
             self.do_tracing_per_step(
                 scheduler_outputs=scheduler_outputs,
                 step_start_time=s_time
             )
             
-
             # we need to do this here so that last step's sampled_token_ids can
             # be passed to the next iteration for PP.
             if self.scheduler_config.is_multi_step:
@@ -404,16 +403,10 @@ class _AsyncLLMEngine(LLMEngine):
                     outputs[0], seq_group_metadata_list,
                     scheduler_outputs.scheduled_seq_groups)
 
-            if not allow_async_output_proc:
-                print("AsyncLLMEngine step_async do_tracing")
-                
+            if not allow_async_output_proc:           
                 self._process_model_outputs(ctx=ctx)
-
-                # Log stats.
-                self.do_log_stats(scheduler_outputs, outputs)
-
-                # Tracing
-                self.do_tracing(scheduler_outputs)
+                self.do_log_stats(scheduler_outputs, outputs)   # Log stats.
+                self.do_tracing(scheduler_outputs)  # Tracing
 
         else:
             # Multi-step case
@@ -431,11 +424,8 @@ class _AsyncLLMEngine(LLMEngine):
         """Stop the remote worker execution loop."""
         await self.model_executor.stop_remote_worker_execution_loop_async()
 
-    async def get_tokenizer_async(self,
-                                  lora_request: Optional[LoRARequest] = None
-                                  ) -> AnyTokenizer:
-        return await (
-            self.get_tokenizer_group().get_lora_tokenizer_async(lora_request))
+    async def get_tokenizer_async(self,lora_request: Optional[LoRARequest] = None) -> AnyTokenizer:
+        return await (self.get_tokenizer_group().get_lora_tokenizer_async(lora_request))
 
     @overload
     @deprecated("'inputs' will be renamed to 'prompt")

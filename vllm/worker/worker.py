@@ -31,6 +31,7 @@ from vllm.worker.model_runner import GPUModelRunnerBase, ModelRunner
 from vllm.worker.pooling_model_runner import PoolingModelRunner
 from vllm.worker.worker_base import (LocalOrDistributedWorkerBase, WorkerBase,
                                      WorkerInput)
+from vllm.tracing import init_tracer
 
 logger = init_logger(__name__)
 
@@ -120,6 +121,14 @@ class Worker(LocalOrDistributedWorkerBase):
                     torch_profiler_trace_dir, use_gzip=True))
         else:
             self.profiler = None
+        
+        # OpenTelemetry tracing
+        self.observability_config = vllm_config.observability_config
+        if self.observability_config.otlp_traces_endpoint:
+            self.tracer = init_tracer(
+                "vllm.llm_engine.worker",
+                self.observability_config.otlp_traces_endpoint
+            )
 
     def start_profile(self):
         if self.profiler is None:

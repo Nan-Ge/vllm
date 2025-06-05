@@ -1048,6 +1048,7 @@ class SequenceGroupMetadata(
     cross_block_table: Optional[list[int]] = None
     prompt_adapter_request: Optional[PromptAdapterRequest] = None
     token_chunk_size: Optional[int] = None
+    trace_headers: Optional[Mapping[str, str]] = None
 
     ### Stateful fields that are lazily defined. ###
     # The number of speculative tokens adopted in this request.

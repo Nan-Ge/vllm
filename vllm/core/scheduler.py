@@ -1622,13 +1622,10 @@ class Scheduler:
                     # between engine and worker.
                     # the subsequent comms can still use delta, but
                     # `multi_modal_data` will be None.
-                    multi_modal_data=(seq_group.multi_modal_data
-                                      if scheduler_outputs.num_prefill_groups
-                                      > 0 else None),
-                    multi_modal_placeholders=(
-                        seq_group.multi_modal_placeholders
-                        if scheduler_outputs.num_prefill_groups > 0 else None),
+                    multi_modal_data=seq_group.multi_modal_data if scheduler_outputs.num_prefill_groups > 0 else None,
+                    multi_modal_placeholders=seq_group.multi_modal_placeholders if scheduler_outputs.num_prefill_groups > 0 else None,
                     prompt_adapter_request=seq_group.prompt_adapter_request,
+                    trace_headers=seq_group.trace_headers
                 )
             else:
                 # When SPMD mode is enabled, we only send delta data except for

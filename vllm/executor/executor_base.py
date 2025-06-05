@@ -134,11 +134,8 @@ class ExecutorBase(ABC):
 
         return self.collective_rpc(rpc_func)
 
-    def execute_model(
-        self, execute_model_req: ExecuteModelRequest
-    ) -> Optional[List[Union[SamplerOutput, PoolerOutput]]]:
-        output = self.collective_rpc("execute_model",
-                                     args=(execute_model_req, ))
+    def execute_model(self,  execute_model_req: ExecuteModelRequest) -> Optional[List[Union[SamplerOutput, PoolerOutput]]]:
+        output = self.collective_rpc("execute_model", args=(execute_model_req, ))
         return output[0]
 
     def stop_remote_worker_execution_loop(self) -> None:
@@ -258,9 +255,7 @@ class ExecutorBase(ABC):
     def __del__(self):
         self.shutdown()
 
-    async def execute_model_async(
-            self,
-            execute_model_req: ExecuteModelRequest) -> List[SamplerOutput]:
+    async def execute_model_async(self, execute_model_req: ExecuteModelRequest) -> List[SamplerOutput]:
         """Executes one model step on the given sequences."""
         output = await make_async(self.execute_model)(execute_model_req)
         return output

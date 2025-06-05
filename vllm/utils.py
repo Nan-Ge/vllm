@@ -2575,8 +2575,12 @@ def bind_kv_cache(
             forward_ctx.kv_cache[ve] = ve_kv_cache[kv_cache_idx]
 
 
-def run_method(obj: Any, method: Union[str, bytes, Callable], args: tuple[Any],
-               kwargs: dict[str, Any]) -> Any:
+def run_method(
+        obj: Any, 
+        method: Union[str, bytes, Callable], 
+        args: tuple[Any],
+        kwargs: dict[str, Any]
+    ) -> Any:
     """
     Run a method of an object with the given arguments and keyword arguments.
     If the method is string, it will be converted to a method using getattr.
@@ -2590,8 +2594,7 @@ def run_method(obj: Any, method: Union[str, bytes, Callable], args: tuple[Any],
         try:
             func = getattr(obj, method)
         except AttributeError:
-            raise NotImplementedError(f"Method {method!r} is not"
-                                      " implemented.") from None
+            raise NotImplementedError(f"Method {method!r} is not implemented.") from None
     else:
         func = partial(method, obj)  # type: ignore
     return func(*args, **kwargs)

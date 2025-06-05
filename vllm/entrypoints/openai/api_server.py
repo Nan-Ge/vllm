@@ -195,8 +195,7 @@ async def build_async_engine_client_from_engine_args(
                 async_llm.shutdown()
 
     # V0 AsyncLLM.
-    elif (MQLLMEngineClient.is_unsupported_config(vllm_config)
-          or disable_frontend_multiprocessing):
+    elif MQLLMEngineClient.is_unsupported_config(vllm_config) or disable_frontend_multiprocessing:
 
         engine_client: Optional[EngineClient] = None
         try:

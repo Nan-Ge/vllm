@@ -61,8 +61,7 @@ class WorkerBase:
         """
         raise NotImplementedError
 
-    def initialize_cache(self, num_gpu_blocks: int,
-                         num_cpu_blocks: int) -> None:
+    def initialize_cache(self, num_gpu_blocks: int, num_cpu_blocks: int) -> None:
         """Initialize the KV cache with the given size in blocks.
         """
         raise NotImplementedError
@@ -427,6 +426,7 @@ class LocalOrDistributedWorkerBase(WorkerBase):
         )
 
         model_execute_time = time.perf_counter() - start_time
+        
         if not get_pp_group().is_last_rank:
             # output is IntermediateTensors
             assert isinstance(output, IntermediateTensors)
@@ -564,10 +564,9 @@ class WorkerWrapperBase:
                 " error-prone. To be safe, please keep the class in a separate"
                 " module and pass the qualified name of the class as a string."
             )
-            assert isinstance(self.vllm_config.parallel_config.worker_cls,
-                              bytes)
-            worker_class = cloudpickle.loads(
-                self.vllm_config.parallel_config.worker_cls)
+            assert isinstance(self.vllm_config.parallel_config.worker_cls, bytes)
+            worker_class = cloudpickle.loads(self.vllm_config.parallel_config.worker_cls)
+        
         if self.vllm_config.parallel_config.worker_extension_cls:
             worker_extension_cls = resolve_obj_by_qualname(
                 self.vllm_config.parallel_config.worker_extension_cls)
@@ -584,11 +583,13 @@ class WorkerWrapperBase:
                     if callable(getattr(worker_extension_cls, attr)):
                         extended_calls.append(attr)
                 # dynamically inherit the worker extension class
-                worker_class.__bases__ = worker_class.__bases__ + (
-                    worker_extension_cls, )
+                worker_class.__bases__ = worker_class.__bases__ + (worker_extension_cls, )
+                
                 logger.info(
                     "Injected %s into %s for extended collective_rpc calls %s",
-                    worker_extension_cls, worker_class, extended_calls)
+                    worker_extension_cls, worker_class, extended_calls
+                )
+                
         with set_current_vllm_config(self.vllm_config):
             # To make vLLM config available during worker initialization
             self.worker = worker_class(**kwargs)
@@ -615,8 +616,7 @@ class WorkerWrapperBase:
             # exceptions in the rest worker may cause deadlock in rpc like ray
             # see https://github.com/vllm-project/vllm/issues/3455
             # print the error and inform the user to solve the error
-            msg = (f"Error executing method {method!r}. "
-                   "This might cause deadlock in distributed execution.")
+            msg = f"Error executing method {method!r}. This might cause deadlock in distributed execution."
             logger.exception(msg)
             raise e
 

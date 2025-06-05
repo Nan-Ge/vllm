@@ -21,10 +21,14 @@ class UniProcExecutor(ExecutorBase):
     uses_ray: bool = False
 
     def _init_executor(self) -> None:
-        """Initialize the worker and load the model.
         """
-        self.driver_worker = WorkerWrapperBase(vllm_config=self.vllm_config,
-                                               rpc_rank=0)
+        Initialize the worker and load the model.
+        """
+        self.driver_worker = WorkerWrapperBase(
+            vllm_config=self.vllm_config,
+            rpc_rank=0
+            )
+        
         distributed_init_method = get_distributed_init_method(
             get_ip(), get_open_port())
         local_rank = 0
@@ -46,13 +50,17 @@ class UniProcExecutor(ExecutorBase):
         self.collective_rpc("init_device")
         self.collective_rpc("load_model")
 
-    def collective_rpc(self,
-                       method: Union[str, Callable],
-                       timeout: Optional[float] = None,
-                       args: Tuple = (),
-                       kwargs: Optional[Dict] = None) -> List[Any]:
+    def collective_rpc(
+        self,
+        method: Union[str, Callable],
+        timeout: Optional[float] = None,
+        args: Tuple = (),
+        kwargs: Optional[Dict] = None
+    ) -> List[Any]:
+        
         if kwargs is None:
             kwargs = {}
+        
         answer = run_method(self.driver_worker, method, args, kwargs)
         return [answer]
 

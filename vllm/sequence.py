@@ -764,6 +764,7 @@ class SequenceGroup:
         self.prompt_adapter_request = prompt_adapter_request
         self.encoder_seq = encoder_seq
         self.trace_headers = trace_headers
+        self.trace_headers_variant = trace_headers
         self.priority = priority
 
         self.cached_request_output = None
@@ -1049,6 +1050,8 @@ class SequenceGroupMetadata(
     prompt_adapter_request: Optional[PromptAdapterRequest] = None
     token_chunk_size: Optional[int] = None
     trace_headers: Optional[Mapping[str, str]] = None
+    trace_headers_variant: Optional[Mapping[str, str]] = None
+    
 
     ### Stateful fields that are lazily defined. ###
     # The number of speculative tokens adopted in this request.

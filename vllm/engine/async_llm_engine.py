@@ -337,6 +337,7 @@ class _AsyncLLMEngine(LLMEngine):
             
             # 包装execute_model_async，自动管理span开始结束
             with BatchedRequestSpanManager(self.tracer, scheduler_outputs.scheduled_seq_groups):
+                
                 # 构造推理的RPC请求
                 execute_model_req = ExecuteModelRequest(
                     seq_group_metadata_list=seq_group_metadata_list,

@@ -160,7 +160,32 @@ class BatchedRequestSpanManager(AbstractContextManager):
             with use_span(span, end_on_exit=False):
                 new_headers = {}
                 TraceContextTextMapPropagator().inject(new_headers)
-                seq_group.trace_headers = new_headers
+                seq_group.trace_headers_variant = new_headers
+
+            self.spans.append((seq_group, span))
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        for _, span in self.spans:
+            span.end(end_time=time.time_ns())
+
+
+class BatchedRequestSpanManagerForWorker(AbstractContextManager):
+    def __init__(self, tracer, seq_group_metadata_list: List):
+        self.tracer = tracer
+        self.seq_group_metadata_list = seq_group_metadata_list
+        self.spans: List[Tuple[SequenceGroup, Span]] = []
+    
+    def __enter__(self):
+        for seq_group in self.seq_group_metadata_list:
+
+            trace_context = extract_trace_context(seq_group.trace_headers_variant)
+            span = self.tracer.start_span(
+                name="execute_model",
+                context=trace_context,
+                kind=SpanKind.SERVER,
+                start_time=time.time_ns(),
+            )
 
             self.spans.append((seq_group, span))
         return self

@@ -819,7 +819,8 @@ class LLMEngine:
             prompt_adapter_request=prompt_adapter_request,
             encoder_seq=encoder_seq,
             priority=priority,
-            draft_size=draft_size)
+            draft_size=draft_size
+        )
 
         return seq_group
 

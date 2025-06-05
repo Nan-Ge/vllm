@@ -24,7 +24,7 @@ from vllm.utils import (enable_trace_function_call_for_thread,
 from vllm.worker.model_runner_base import (BroadcastableModelInput,
                                            ModelRunnerBase,
                                            ModelRunnerInputBase)
-from vllm.tracing import SpanAttributes, SpanKind, extract_trace_context
+from vllm.tracing import BatchedRequestSpanManagerForWorker
 
 
 logger = init_logger(__name__)
@@ -418,26 +418,15 @@ class LocalOrDistributedWorkerBase(WorkerBase):
                 orig_model_execute_time = intermediate_tensors.tensors.get(
                     "model_execute_time", torch.tensor(0)).item()
         
-        s_time = time.time_ns()
-        
-        output = self.model_runner.execute_model(
-            model_input=model_input,
-            kv_caches=self.kv_cache[worker_input.virtual_engine]
-            if self.kv_cache is not None else None,
-            intermediate_tensors=intermediate_tensors,
-            num_steps=num_steps,
-            **kwargs,
-        )
-        
-        for seq_group in execute_model_req.seq_group_metadata_list:
-            trace_ctx = extract_trace_context(seq_group.trace_headers)
-            
-            with self.tracer.start_as_current_span(
-                name=f"forward_step_{seq_group.request_id}",
-                context=trace_ctx,
-                start_time=s_time
-            ) as span:
-                span.set_attribute("is_prefill", seq_group.is_prompt)  
+        with BatchedRequestSpanManagerForWorker(self.tracer, execute_model_req.seq_group_metadata_list):
+            output = self.model_runner.execute_model(
+                model_input=model_input,
+                kv_caches=self.kv_cache[worker_input.virtual_engine]
+                if self.kv_cache is not None else None,
+                intermediate_tensors=intermediate_tensors,
+                num_steps=num_steps,
+                **kwargs,
+            )
 
         model_execute_time = time.perf_counter() - start_time
         

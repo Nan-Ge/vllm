@@ -1,11 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
+import time
 from collections.abc import Mapping
-from typing import Optional
+from typing import Optional, List, Tuple
+from contextlib import AbstractContextManager
 
 from vllm.logger import init_logger
 from vllm.utils import run_once
+from vllm.sequence import SequenceGroup
 
 TRACE_HEADERS = ["traceparent", "tracestate"]
 
@@ -19,7 +22,7 @@ try:
         OTEL_EXPORTER_OTLP_TRACES_PROTOCOL)
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
-    from opentelemetry.trace import SpanKind, Tracer, set_tracer_provider
+    from opentelemetry.trace import SpanKind, Tracer, set_tracer_provider, Span, use_span
     from opentelemetry.trace.propagation.tracecontext import (
         TraceContextTextMapPropagator)
     _is_otel_imported = True
@@ -127,3 +130,41 @@ def contains_trace_headers(headers: Mapping[str, str]) -> bool:
 def log_tracing_disabled_warning() -> None:
     logger.warning(
         "Received a request with trace context but tracing is disabled")
+    
+
+class BatchedRequestSpanManager(AbstractContextManager):
+    def __init__(self, tracer, scheduled_seq_groups: List, ):
+        self.tracer = tracer
+        self.scheduled_seq_groups = scheduled_seq_groups
+        self.spans: List[Tuple[SequenceGroup, Span]] = []
+
+    def __enter__(self):
+        for scheduled_seq_group in self.scheduled_seq_groups:
+            seq_group = scheduled_seq_group.seq_group
+            if seq_group.is_finished():
+                continue
+
+            step_type = "p" if seq_group.is_prefill() else "d"
+            seq_group.step_cnt += 1
+            span_name = f"{step_type}_{seq_group.step_cnt}"
+
+            trace_context = extract_trace_context(seq_group.trace_headers)
+            span = self.tracer.start_span(
+                name=span_name,
+                context=trace_context,
+                kind=SpanKind.SERVER,
+                start_time=time.time_ns(),
+            )
+
+            # 激活上下文，inject trace headers
+            with use_span(span, end_on_exit=False):
+                new_headers = {}
+                TraceContextTextMapPropagator().inject(new_headers)
+                seq_group.trace_headers = new_headers
+
+            self.spans.append((seq_group, span))
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        for _, span in self.spans:
+            span.end(end_time=time.time_ns())

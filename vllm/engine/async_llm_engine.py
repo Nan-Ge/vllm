@@ -13,7 +13,7 @@ from typing_extensions import deprecated
 
 import vllm.envs as envs
 from vllm.config import (DecodingConfig, LoRAConfig, ModelConfig,
-                         ParallelConfig, SchedulerConfig, VllmConfig)
+    ParallelConfig, SchedulerConfig, VllmConfig)
 from vllm.core.scheduler import SchedulerOutputs
 from vllm.engine.arg_utils import AsyncEngineArgs
 from vllm.engine.async_timeout import asyncio_timeout
@@ -36,6 +36,8 @@ from vllm.sequence import ExecuteModelRequest
 from vllm.transformers_utils.tokenizer import AnyTokenizer
 from vllm.usage.usage_lib import UsageContext
 from vllm.utils import Device, deprecate_kwargs, weak_bind
+
+from vllm.tracing import BatchedRequestSpanManager
 
 logger = init_logger(__name__)
 ENGINE_ITERATION_TIMEOUT_S = envs.VLLM_ENGINE_ITERATION_TIMEOUT_S
@@ -332,33 +334,29 @@ class _AsyncLLMEngine(LLMEngine):
             # will cause one virtual engine's microbatch to block the pipeline.
             last_sampled_token_ids = \
                 self._get_last_sampled_token_ids(virtual_engine)
-
-            execute_model_req = ExecuteModelRequest(
-                seq_group_metadata_list=seq_group_metadata_list,
-                blocks_to_swap_in=scheduler_outputs.blocks_to_swap_in,
-                blocks_to_swap_out=scheduler_outputs.blocks_to_swap_out,
-                blocks_to_copy=scheduler_outputs.blocks_to_copy,
-                virtual_engine=virtual_engine,
-                num_lookahead_slots=scheduler_outputs.num_lookahead_slots,
-                running_queue_size=scheduler_outputs.running_queue_size,
-                finished_requests_ids=finished_requests_ids,
-                # We use ExecuteModelRequest to pass the last sampled_token_ids
-                # to each of the non-last PP stages for in-place prepare_input.
-                last_sampled_token_ids=last_sampled_token_ids
-            )
-
-            if allow_async_output_proc:
-                execute_model_req.async_callback = self.async_callbacks[virtual_engine]
-
-            # Execute the model.
-            s_time = time.time_ns()
-            outputs = await self.model_executor.execute_model_async(execute_model_req)
             
-            # Per-step tracing
-            self.do_tracing_per_step(
-                scheduler_outputs=scheduler_outputs,
-                step_start_time=s_time
-            )
+            # 包装execute_model_async，自动管理span开始结束
+            with BatchedRequestSpanManager(self.tracer, scheduler_outputs.scheduled_seq_groups):
+                # 构造推理的RPC请求
+                execute_model_req = ExecuteModelRequest(
+                    seq_group_metadata_list=seq_group_metadata_list,
+                    blocks_to_swap_in=scheduler_outputs.blocks_to_swap_in,
+                    blocks_to_swap_out=scheduler_outputs.blocks_to_swap_out,
+                    blocks_to_copy=scheduler_outputs.blocks_to_copy,
+                    virtual_engine=virtual_engine,
+                    num_lookahead_slots=scheduler_outputs.num_lookahead_slots,
+                    running_queue_size=scheduler_outputs.running_queue_size,
+                    finished_requests_ids=finished_requests_ids,
+                    # We use ExecuteModelRequest to pass the last sampled_token_ids
+                    # to each of the non-last PP stages for in-place prepare_input.
+                    last_sampled_token_ids=last_sampled_token_ids
+                )
+
+                if allow_async_output_proc:
+                    execute_model_req.async_callback = self.async_callbacks[virtual_engine]
+                    
+                    # Execute the model.
+                    outputs = await self.model_executor.execute_model_async(execute_model_req)
             
             # we need to do this here so that last step's sampled_token_ids can
             # be passed to the next iteration for PP.

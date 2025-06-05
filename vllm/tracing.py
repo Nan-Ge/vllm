@@ -8,7 +8,7 @@ from contextlib import AbstractContextManager
 
 from vllm.logger import init_logger
 from vllm.utils import run_once
-from vllm.sequence import SequenceGroup
+from vllm.sequence import SequenceGroup, SequenceGroupMetadata
 
 TRACE_HEADERS = ["traceparent", "tracestate"]
 
@@ -174,7 +174,7 @@ class BatchedRequestSpanManagerForWorker(AbstractContextManager):
     def __init__(self, tracer, seq_group_metadata_list: List):
         self.tracer = tracer
         self.seq_group_metadata_list = seq_group_metadata_list
-        self.spans: List[Tuple[SequenceGroup, Span]] = []
+        self.spans: List[Tuple[SequenceGroupMetadata, Span]] = []
     
     def __enter__(self):
         for seq_group in self.seq_group_metadata_list:

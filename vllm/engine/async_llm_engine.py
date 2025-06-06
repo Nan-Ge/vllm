@@ -334,30 +334,32 @@ class _AsyncLLMEngine(LLMEngine):
             # will cause one virtual engine's microbatch to block the pipeline.
             last_sampled_token_ids = \
                 self._get_last_sampled_token_ids(virtual_engine)
+        
+            # 构造推理的RPC请求
+            execute_model_req = ExecuteModelRequest(
+                seq_group_metadata_list=seq_group_metadata_list,
+                blocks_to_swap_in=scheduler_outputs.blocks_to_swap_in,
+                blocks_to_swap_out=scheduler_outputs.blocks_to_swap_out,
+                blocks_to_copy=scheduler_outputs.blocks_to_copy,
+                virtual_engine=virtual_engine,
+                num_lookahead_slots=scheduler_outputs.num_lookahead_slots,
+                running_queue_size=scheduler_outputs.running_queue_size,
+                finished_requests_ids=finished_requests_ids,
+                # We use ExecuteModelRequest to pass the last sampled_token_ids
+                # to each of the non-last PP stages for in-place prepare_input.
+                last_sampled_token_ids=last_sampled_token_ids
+            )
+
+            if allow_async_output_proc:
+                execute_model_req.async_callback = self.async_callbacks[virtual_engine]
             
             # 包装execute_model_async，自动管理span开始结束
-            with BatchedRequestSpanManager(self.tracer, scheduler_outputs.scheduled_seq_groups):
-                
-                # 构造推理的RPC请求
-                execute_model_req = ExecuteModelRequest(
-                    seq_group_metadata_list=seq_group_metadata_list,
-                    blocks_to_swap_in=scheduler_outputs.blocks_to_swap_in,
-                    blocks_to_swap_out=scheduler_outputs.blocks_to_swap_out,
-                    blocks_to_copy=scheduler_outputs.blocks_to_copy,
-                    virtual_engine=virtual_engine,
-                    num_lookahead_slots=scheduler_outputs.num_lookahead_slots,
-                    running_queue_size=scheduler_outputs.running_queue_size,
-                    finished_requests_ids=finished_requests_ids,
-                    # We use ExecuteModelRequest to pass the last sampled_token_ids
-                    # to each of the non-last PP stages for in-place prepare_input.
-                    last_sampled_token_ids=last_sampled_token_ids
-                )
-
-                if allow_async_output_proc:
-                    execute_model_req.async_callback = self.async_callbacks[virtual_engine]
-                    
-                    # Execute the model.
-                    outputs = await self.model_executor.execute_model_async(execute_model_req)
+            with BatchedRequestSpanManager(
+                self.tracer, 
+                execute_model_req,
+                scheduler_outputs.scheduled_seq_groups
+            ):
+                outputs = await self.model_executor.execute_model_async(execute_model_req)
             
             # we need to do this here so that last step's sampled_token_ids can
             # be passed to the next iteration for PP.
@@ -528,11 +530,13 @@ class _AsyncLLMEngine(LLMEngine):
     async def check_health_async(self) -> None:
         self.model_executor.check_health()
 
-    async def collective_rpc_async(self,
-                                   method: str,
-                                   timeout: Optional[float] = None,
-                                   args: tuple = (),
-                                   kwargs: Optional[dict] = None):
+    async def collective_rpc_async(
+        self,
+        method: str,
+        timeout: Optional[float] = None,
+        args: tuple = (),
+        kwargs: Optional[dict] = None
+    ):
         raise NotImplementedError
 
 

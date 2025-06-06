@@ -764,7 +764,7 @@ class SequenceGroup:
         self.prompt_adapter_request = prompt_adapter_request
         self.encoder_seq = encoder_seq
         self.trace_headers = trace_headers
-        self.trace_headers_variant = trace_headers
+        self.trace_headers_variant = None
         self.priority = priority
 
         self.cached_request_output = None
@@ -1383,11 +1383,9 @@ class ExecuteModelRequest(
     seq_group_metadata_list: list[Union[SequenceGroupMetadata,
                                         SequenceGroupMetadataDelta]]
     # Blocks to swap in. List of CPU -> GPU block number.
-    blocks_to_swap_in: list[tuple[int,
-                                  int]] = msgspec.field(default_factory=list)
+    blocks_to_swap_in: list[tuple[int, int]] = msgspec.field(default_factory=list)
     # Blocks to swap out. List of GPU -> CPU block number.
-    blocks_to_swap_out: list[tuple[int,
-                                   int]] = msgspec.field(default_factory=list)
+    blocks_to_swap_out: list[tuple[int, int]] = msgspec.field(default_factory=list)
     # Blocks to copy. Source to dest block.
     blocks_to_copy: list[tuple[int, int]] = msgspec.field(default_factory=list)
     # Virtual engine ID for pipeline parallel.
@@ -1437,8 +1435,7 @@ class ExecuteModelRequest(
         return state.current_step
 
     def clone(
-        self, seq_group_metadata_list: list[Union[SequenceGroupMetadata,
-                                                  SequenceGroupMetadataDelta]]
+        self, seq_group_metadata_list: list[Union[SequenceGroupMetadata, SequenceGroupMetadataDelta]]
     ) -> "ExecuteModelRequest":
         """Clone the request with a new sequence group metadata list."""
         return ExecuteModelRequest(

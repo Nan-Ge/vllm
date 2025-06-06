@@ -8,7 +8,7 @@ from contextlib import AbstractContextManager
 
 from vllm.logger import init_logger
 from vllm.utils import run_once
-from vllm.sequence import SequenceGroup, SequenceGroupMetadata
+from vllm.sequence import SequenceGroup, SequenceGroupMetadata, ExecuteModelRequest
 
 TRACE_HEADERS = ["traceparent", "tracestate"]
 
@@ -133,13 +133,16 @@ def log_tracing_disabled_warning() -> None:
     
 
 class BatchedRequestSpanManager(AbstractContextManager):
-    def __init__(self, tracer, scheduled_seq_groups: List, ):
+    def __init__(self, tracer, execute_model_req: ExecuteModelRequest, scheduled_seq_groups: List):
         self.tracer = tracer
+        self.execute_model_req = execute_model_req
         self.scheduled_seq_groups = scheduled_seq_groups
         self.spans: List[Tuple[SequenceGroup, Span]] = []
 
     def __enter__(self):
-        for scheduled_seq_group in self.scheduled_seq_groups:
+
+        for idx, scheduled_seq_group in enumerate(self.scheduled_seq_groups):
+        
             seq_group = scheduled_seq_group.seq_group
             if seq_group.is_finished():
                 continue
@@ -160,7 +163,7 @@ class BatchedRequestSpanManager(AbstractContextManager):
             with use_span(span, end_on_exit=False):
                 new_headers = {}
                 TraceContextTextMapPropagator().inject(new_headers)
-                seq_group.trace_headers_variant = new_headers
+                self.execute_model_req.seq_group_metadata_list[idx].trace_headers_variant = new_headers
 
             self.spans.append((seq_group, span))
         return self
@@ -178,6 +181,9 @@ class BatchedRequestSpanManagerForWorker(AbstractContextManager):
     
     def __enter__(self):
         for seq_group in self.seq_group_metadata_list:
+            
+            if seq_group.trace_headers_variant is None:
+                print("Error")
 
             trace_context = extract_trace_context(seq_group.trace_headers_variant)
             span = self.tracer.start_span(

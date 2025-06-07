@@ -1674,8 +1674,7 @@ class Scheduler:
         self.cache_id = self.next_cache_id
 
         # Return results
-        return (seq_group_metadata_list, scheduler_outputs,
-                allow_async_output_proc)
+        return seq_group_metadata_list, scheduler_outputs, allow_async_output_proc
 
     def fork_seq(self, parent_seq: Sequence, child_seq: Sequence) -> None:
         self.block_manager.fork(parent_seq, child_seq)
@@ -2083,7 +2082,6 @@ class Scheduler:
             # finishing prefill for this sequence, so we do not need to
             # allocate a full block.
 
-        num_new_tokens = min(num_new_tokens, remaining_token_budget,
-                             prefill_slot_budget)
+        num_new_tokens = min(num_new_tokens, remaining_token_budget,prefill_slot_budget)
 
         return num_new_tokens

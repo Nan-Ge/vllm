@@ -23,7 +23,7 @@ def main():
     llm = LLM(
         model="facebook/opt-125m",
         enforce_eager=True,
-        gpu_memory_utilization=0.01,
+        gpu_memory_utilization=0.8,
         kv_transfer_config=KVTransferConfig(
             kv_connector="SharedStorageConnector",
             kv_role="kv_both",

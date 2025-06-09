@@ -16,7 +16,7 @@ import subprocess
 import time
 from multiprocessing import Event, Process
 
-from lmcache.experimental.cache_engine import LMCacheEngineBuilder
+from lmcache.cache_engine import LMCacheEngineBuilder
 from lmcache.integration.vllm.utils import ENGINE_NAME
 
 from vllm import LLM, SamplingParams
@@ -59,9 +59,9 @@ def run_prefill(prefill_done, prompts):
     # Set GPU memory utilization to 0.8 for an A40 GPU with 40GB
     # memory. Reduce the value if your GPU has less memory.
     llm = LLM(
-        model="mistralai/Mistral-7B-Instruct-v0.2",
+        model="facebook/opt-125m",
         kv_transfer_config=ktc,
-        max_model_len=8000,
+        max_model_len=1024,
         gpu_memory_utilization=0.8,
         enforce_eager=True,
     )
@@ -93,9 +93,9 @@ def run_decode(prefill_done, prompts, timeout=1):
     # Set GPU memory utilization to 0.8 for an A40 GPU with 40GB
     # of memory. Reduce the value if your GPU has less memory.
     llm = LLM(
-        model="mistralai/Mistral-7B-Instruct-v0.2",
+        model="facebook/opt-125m",
         kv_transfer_config=ktc,
-        max_model_len=8000,
+        max_model_len=1024,
         gpu_memory_utilization=0.8,
         enforce_eager=True,
     )

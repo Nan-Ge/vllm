@@ -2012,8 +2012,7 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
         # check if the current run is prefill
         is_prefill_run = prefill_meta is not None
 
-        return self.vllm_config.kv_transfer_config.is_kv_producer and (
-            not is_profile_run) and is_prefill_run
+        return self.vllm_config.kv_transfer_config.is_kv_producer and not is_profile_run and is_prefill_run
 
 
 # NOTE: this is nn.Module so the profiler can properly capture/group

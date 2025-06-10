@@ -31,7 +31,7 @@ from vllm.worker.model_runner import GPUModelRunnerBase, ModelRunner
 from vllm.worker.pooling_model_runner import PoolingModelRunner
 from vllm.worker.worker_base import (LocalOrDistributedWorkerBase, WorkerBase,
                                      WorkerInput)
-from vllm.tracing import init_tracer
+from vllm.tracing import init_tracer_globally
 
 logger = init_logger(__name__)
 
@@ -125,7 +125,7 @@ class Worker(LocalOrDistributedWorkerBase):
         # OpenTelemetry tracing
         self.observability_config = vllm_config.observability_config
         if self.observability_config.otlp_traces_endpoint:
-            self.tracer = init_tracer(
+            self.tracer = init_tracer_globally(
                 "vllm.llm_engine.worker",
                 self.observability_config.otlp_traces_endpoint
             )

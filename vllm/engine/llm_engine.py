@@ -49,8 +49,7 @@ from vllm.sequence import (ExecuteModelRequest, ParallelSampleSequenceGroup,
                            PoolingSequenceGroupOutput, Sequence, SequenceGroup,
                            SequenceGroupBase, SequenceGroupMetadata,
                            SequenceGroupOutput, SequenceStatus)
-from vllm.tracing import (SpanAttributes, SpanKind, extract_trace_context,
-    init_tracer)
+from vllm.tracing import SpanAttributes, SpanKind, extract_trace_context, init_tracer_globally
 from vllm.transformers_utils.detokenizer import Detokenizer
 from vllm.transformers_utils.tokenizer import AnyTokenizer
 from vllm.transformers_utils.tokenizer_group import (
@@ -61,6 +60,8 @@ from vllm.utils import (Counter, Device, deprecate_kwargs,
                         resolve_obj_by_qualname, weak_bind)
 from vllm.version import __version__ as VLLM_VERSION
 from vllm.worker.model_runner_base import InputProcessingError
+
+from vllm.tracing import BatchedRequestSpanManager
 
 logger = init_logger(__name__)
 _LOCAL_LOGGING_INTERVAL_SEC = 5
@@ -377,7 +378,7 @@ class LLMEngine:
         self.tracer = None
         print("[Testing OpenTelemetry tracing]")
         if self.observability_config.otlp_traces_endpoint:
-            self.tracer = init_tracer(
+            self.tracer = init_tracer_globally(
                 "vllm.llm_engine",
                 self.observability_config.otlp_traces_endpoint
             )
@@ -1388,7 +1389,13 @@ class LLMEngine:
                     virtual_engine]
 
             try:
-                outputs = self.model_executor.execute_model(execute_model_req=execute_model_req)
+                # 包装execute_model_async，自动管理span开始结束
+                with BatchedRequestSpanManager(
+                    self.tracer, 
+                    execute_model_req,
+                    scheduler_outputs.scheduled_seq_groups
+                ):
+                    outputs = self.model_executor.execute_model(execute_model_req=execute_model_req)
                 self._skip_scheduling_next_step = False
             except InputProcessingError as e:
                 # The input for this request cannot be processed, so we must

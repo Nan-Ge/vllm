@@ -47,6 +47,47 @@ except ImportError:
         pass
 
 
+# Global tracer
+vllm_instance_global_tracer: dict = dict()
+
+def init_tracer_globally(tracer_name: str, otlp_traces_endpoint: str) -> Optional[Tracer]:
+    if tracer_name in vllm_instance_global_tracer:
+        logger.warning(
+            f"Tracer with name '{tracer_name}' is already initialized. "
+            "Returning the existing tracer.")
+        return vllm_instance_global_tracer[tracer_name]
+    else:
+        tracer = init_tracer(tracer_name, otlp_traces_endpoint)
+        if tracer is not None:
+            vllm_instance_global_tracer[tracer_name] = tracer
+            logger.info(f"Initialized global tracer '{tracer_name}'")
+            return tracer
+        else:
+            logger.error(
+                f"Failed to initialize tracer '{tracer_name}'. "
+                "Ensure OpenTelemetry packages are installed.")
+
+def get_tracer_globally(tracer_name: str) -> Optional[Tracer]:
+    if tracer_name in vllm_instance_global_tracer:
+        return vllm_instance_global_tracer[tracer_name]
+    else:
+        raise ValueError(
+            f"Tracer with name '{tracer_name}' is not initialized. "
+            "Call `init_tracer_globally` to initialize it first.")
+            
+# Global trace_headers
+vllm_instance_worker_global_trace_headers: list = list()
+
+def inject_trace_headers_globally(trace_headers: Context) -> None:
+    vllm_instance_worker_global_trace_headers.append(trace_headers)
+    
+def get_trace_headers_globally() -> list:
+    return vllm_instance_worker_global_trace_headers
+
+def clear_trace_headers_globally() -> None:
+    vllm_instance_worker_global_trace_headers.clear()
+    
+
 def is_otel_available() -> bool:
     return _is_otel_imported
 
@@ -183,19 +224,62 @@ class BatchedRequestSpanManagerForWorker(AbstractContextManager):
         for seq_group in self.seq_group_metadata_list:
             
             if seq_group.trace_headers_variant is None:
-                print("Error")
+                continue
 
+            # 提取trace context
             trace_context = extract_trace_context(seq_group.trace_headers_variant)
+            
+            # 手动开启span
             span = self.tracer.start_span(
                 name="execute_model",
                 context=trace_context,
                 kind=SpanKind.SERVER,
                 start_time=time.time_ns(),
             )
+            
+            # 激活上下文，inject trace headers
+            with use_span(span, end_on_exit=False):
+                new_headers = {}
+                TraceContextTextMapPropagator().inject(new_headers)
+                inject_trace_headers_globally(extract_trace_context(new_headers))
 
             self.spans.append((seq_group, span))
+            
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        # 手动结束每个span
+        for _, span in self.spans:
+            span.end(end_time=time.time_ns())
+        
+        # 清除全局trace headers  
+        clear_trace_headers_globally()
+        
+class BatchedRequestSpanManagerForAttentionLayer(AbstractContextManager):
+    def __init__(self, tracer, trace_context_list: list, span_name: str):
+        self.tracer = tracer
+        self.trace_context_list = trace_context_list
+        self.span_name = span_name
+        self.spans: List[Tuple[Context, Span]] = []
+
+    def __enter__(self):
+        for tr_ctx in self.trace_context_list:
+            if tr_ctx is None:
+                continue
+
+            # 手动开启span
+            span = self.tracer.start_span(
+                name=self.span_name,
+                context=tr_ctx,
+                kind=SpanKind.SERVER,
+                start_time=time.time_ns(),
+            )
+            self.spans.append((tr_ctx, span))
+        
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        
+        # 手动结束span
         for _, span in self.spans:
             span.end(end_time=time.time_ns())

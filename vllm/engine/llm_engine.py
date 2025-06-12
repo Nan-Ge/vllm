@@ -61,7 +61,7 @@ from vllm.utils import (Counter, Device, deprecate_kwargs,
 from vllm.version import __version__ as VLLM_VERSION
 from vllm.worker.model_runner_base import InputProcessingError
 
-from vllm.tracing import BatchedRequestSpanManager
+from vllm.tracing import BatchedSpanManager
 
 logger = init_logger(__name__)
 _LOCAL_LOGGING_INTERVAL_SEC = 5
@@ -1331,9 +1331,7 @@ class LLMEngine:
                 seq_group_metadata_list
         ) and not self._skip_scheduling_next_step:
             # Schedule iteration
-            (seq_group_metadata_list, scheduler_outputs,
-             allow_async_output_proc
-             ) = self.scheduler[virtual_engine].schedule()
+            seq_group_metadata_list, scheduler_outputs, allow_async_output_proc = self.scheduler[virtual_engine].schedule()
 
             ctx.seq_group_metadata_list = seq_group_metadata_list
             ctx.scheduler_outputs = scheduler_outputs
@@ -1385,17 +1383,17 @@ class LLMEngine:
                 last_sampled_token_ids=last_sampled_token_ids)
 
             if allow_async_output_proc:
-                execute_model_req.async_callback = self.async_callbacks[
-                    virtual_engine]
+                execute_model_req.async_callback = self.async_callbacks[virtual_engine]
 
             try:
                 # 包装execute_model_async，自动管理span开始结束
-                with BatchedRequestSpanManager(
-                    self.tracer, 
-                    execute_model_req,
-                    scheduler_outputs.scheduled_seq_groups
+                with BatchedSpanManager(
+                    tracer=self.tracer, 
+                    seq_group_metadata_list=seq_group_metadata_list,
+                    scheduled_seq_groups=scheduler_outputs.scheduled_seq_groups
                 ):
                     outputs = self.model_executor.execute_model(execute_model_req=execute_model_req)
+                
                 self._skip_scheduling_next_step = False
             except InputProcessingError as e:
                 # The input for this request cannot be processed, so we must
@@ -1934,43 +1932,6 @@ class LLMEngine:
                 logger.info(f"Finished seq_group {seq_group.request_id}, create_trace_span")
                 self.create_trace_span(seq_group)
     
-    def do_tracing_per_step(
-        self, 
-        scheduler_outputs: SchedulerOutputs, 
-        step_start_time: int
-    ) -> None:
-        
-        if self.tracer is None:
-            return
-        
-        for _, scheduled_seq_group in enumerate(scheduler_outputs.scheduled_seq_groups):
-            seq_group = scheduled_seq_group.seq_group
-            
-            if seq_group.is_finished():  # 如果请求已经推理结束，跳过后面的逻辑
-                continue
-            
-            seq_group.step_cnt += 1
-            
-            if seq_group.is_prefill():
-                span_name = f"prefill_step_{seq_group.step_cnt}"
-            else:
-                span_name = f"decode_step_{seq_group.step_cnt}"
-            
-            trace_context = extract_trace_context(seq_group.trace_headers)
-            
-            with self.tracer.start_as_current_span(
-                name=span_name,
-                kind=SpanKind.SERVER,
-                context=trace_context,
-                start_time=step_start_time,
-            ) as seq_step_span:
-                
-                seq_step_span.set_attribute(
-                    SpanAttributes.GEN_AI_REQUEST_ID,
-                    seq_group.request_id
-                )
-                
-
     def create_trace_span(self, seq_group: SequenceGroup) -> None:
         if self.tracer is None or seq_group.sampling_params is None:
             return

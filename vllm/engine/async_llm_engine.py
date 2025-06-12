@@ -37,7 +37,7 @@ from vllm.transformers_utils.tokenizer import AnyTokenizer
 from vllm.usage.usage_lib import UsageContext
 from vllm.utils import Device, deprecate_kwargs, weak_bind
 
-from vllm.tracing import BatchedRequestSpanManager
+from vllm.tracing import BatchedSpanManager
 
 logger = init_logger(__name__)
 ENGINE_ITERATION_TIMEOUT_S = envs.VLLM_ENGINE_ITERATION_TIMEOUT_S
@@ -354,10 +354,10 @@ class _AsyncLLMEngine(LLMEngine):
                 execute_model_req.async_callback = self.async_callbacks[virtual_engine]
             
             # 包装execute_model_async，自动管理span开始结束
-            with BatchedRequestSpanManager(
-                self.tracer, 
-                execute_model_req,
-                scheduler_outputs.scheduled_seq_groups
+            with BatchedSpanManager(
+                    tracer=self.tracer, 
+                    seq_group_metadata_list=seq_group_metadata_list,
+                    scheduled_seq_groups=scheduler_outputs.scheduled_seq_groups
             ):
                 outputs = await self.model_executor.execute_model_async(execute_model_req)
             

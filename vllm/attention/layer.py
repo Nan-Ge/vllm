@@ -20,7 +20,7 @@ from vllm.model_executor.layers.quantization.base_config import (
 from vllm.model_executor.layers.quantization.kv_cache import BaseKVCacheMethod
 from vllm.platforms import _Backend, current_platform
 from vllm.utils import direct_register_custom_op
-from vllm.tracing import BatchedRequestSpanManagerForAttentionLayer, get_tracer_globally, get_trace_headers_globally
+from vllm.tracing import BatchedSpanManagerAuto, get_tracer_globally
 
 
 class Attention(nn.Module):
@@ -418,13 +418,11 @@ def unified_attention_with_output(
 ) -> None:
     
     tracer = get_tracer_globally("vllm.llm_engine.worker")
-    trace_context_list = get_trace_headers_globally()
     
-    with BatchedRequestSpanManagerForAttentionLayer(tracer, trace_context_list, "load_lv"):
+    with BatchedSpanManagerAuto(tracer, "load_lv"):
         wait_for_kv_layer_from_connector(layer_name)
     
-    
-    with BatchedRequestSpanManagerForAttentionLayer(tracer, trace_context_list, "forward"):
+    with BatchedSpanManagerAuto(tracer, "forward"):
         forward_context: ForwardContext = get_forward_context()
         attn_metadata = forward_context.attn_metadata
         if isinstance(attn_metadata, dict):
@@ -441,8 +439,7 @@ def unified_attention_with_output(
             output=output
         )
         
-        
-    with BatchedRequestSpanManagerForAttentionLayer(tracer, trace_context_list, "save_kv"):
+    with BatchedSpanManagerAuto(tracer, "save_kv"):
         maybe_save_kv_layer_to_connector(layer_name, kv_cache)
 
 

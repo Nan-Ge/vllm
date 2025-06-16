@@ -61,6 +61,8 @@ from vllm.worker.model_runner_base import (
     _init_attn_metadata_from_tensor_dict,
     _init_sampling_metadata_from_tensor_dict)
 
+from vllm.tracing import BatchedSpanManagerAuto, get_tracer_globally
+
 if TYPE_CHECKING:
     from vllm.attention.backends.abstract import AttentionBackend
 
@@ -1760,6 +1762,9 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
         num_steps: int = 1,
         **kwargs,
     ) -> Optional[Union[List[SamplerOutput], IntermediateTensors]]:
+        
+        tracer = get_tracer_globally("vllm.llm_engine.worker")
+        
         if num_steps > 1:
             raise ValueError("num_steps > 1 is not supported in ModelRunner")
 
@@ -1811,17 +1816,19 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
         # In KV cache database setting, it will change the model input so that
         # we can skip prefilling on tokens that successfully received KV caches
         # NOTE: The receive operation is blocking
-        bypass_model_exec = False
-        if self.need_recv_kv(model_input, kv_caches):
-            hidden_or_intermediate_states, bypass_model_exec, model_input = \
-                get_kv_transfer_group().recv_kv_caches_and_hidden_states(
-                    # model is used to know which layer the current worker
-                    # is working on, so that we can receive KV for only those
-                    # layers.
-                    model_executable,
-                    model_input,
-                    kv_caches=kv_caches
-                )
+        
+        with BatchedSpanManagerAuto(tracer, "model_runner.recv_kv"):
+            bypass_model_exec = False
+            if self.need_recv_kv(model_input, kv_caches):
+                hidden_or_intermediate_states, bypass_model_exec, model_input = \
+                    get_kv_transfer_group().recv_kv_caches_and_hidden_states(
+                        # model is used to know which layer the current worker
+                        # is working on, so that we can receive KV for only those
+                        # layers.
+                        model_executable,
+                        model_input,
+                        kv_caches=kv_caches
+                    )
 
         multi_modal_kwargs = model_input.multi_modal_kwargs or {}
         seqlen_agnostic_kwargs = {
@@ -1838,54 +1845,57 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
             model_forward_start.record()
 
         if not bypass_model_exec:
-            with set_forward_context(model_input.attn_metadata, self.vllm_config, virtual_engine):
-                hidden_or_intermediate_states = model_executable(
-                    input_ids=model_input.input_tokens,
-                    inputs_embeds=model_input.inputs_embeds,
-                    positions=model_input.input_positions,
-                    intermediate_tensors=intermediate_tensors,
-                    **MultiModalKwargs.as_kwargs(
-                        multi_modal_kwargs,
-                        dtype=self.model_config.dtype,
-                        device=self.device,
-                    ),
-                    **seqlen_agnostic_kwargs,
-                    **model_kwargs,
-                )
+            with BatchedSpanManagerAuto(tracer, "model_runner.forward"):
+                with set_forward_context(model_input.attn_metadata, self.vllm_config, virtual_engine):
+                    hidden_or_intermediate_states = model_executable(
+                        input_ids=model_input.input_tokens,
+                        inputs_embeds=model_input.inputs_embeds,
+                        positions=model_input.input_positions,
+                        intermediate_tensors=intermediate_tensors,
+                        **MultiModalKwargs.as_kwargs(
+                            multi_modal_kwargs,
+                            dtype=self.model_config.dtype,
+                            device=self.device,
+                        ),
+                        **seqlen_agnostic_kwargs,
+                        **model_kwargs,
+                    )
 
         if (self.observability_config is not None and self.observability_config.collect_model_forward_time):
             model_forward_end.record()
 
         # Sending KV cache in distributed KV cache transfer setting
         # NOTE: the send operation is non-blocking
-        if self.need_send_kv(model_input, kv_caches):
-            get_kv_transfer_group().send_kv_caches_and_hidden_states(
-                # model_executable is used to know which layer the current
-                # worker is working on, so that we can send KV for only those
-                # layers.
-                model_executable,
-                model_input,
-                kv_caches,
-                hidden_or_intermediate_states,
-            )
+        with BatchedSpanManagerAuto(tracer, "model_runner.send_kv"):
+            if self.need_send_kv(model_input, kv_caches):
+                get_kv_transfer_group().send_kv_caches_and_hidden_states(
+                    # model_executable is used to know which layer the current
+                    # worker is working on, so that we can send KV for only those
+                    # layers.
+                    model_executable,
+                    model_input,
+                    kv_caches,
+                    hidden_or_intermediate_states,
+                )
 
         # Compute the logits in the last pipeline stage.
-        if not get_pp_group().is_last_rank:
-            if (self.is_driver_worker
-                    and hidden_or_intermediate_states is not None
-                    and isinstance(hidden_or_intermediate_states, IntermediateTensors)
-                    and self.observability_config is not None
-                    and self.observability_config.collect_model_forward_time):
-                model_forward_end.synchronize()
-                model_forward_time = model_forward_start.elapsed_time(
-                    model_forward_end)
-                orig_model_forward_time = 0.0
-                if intermediate_tensors is not None:
-                    orig_model_forward_time = intermediate_tensors.tensors.get(
-                        "model_forward_time", torch.tensor(0.0)).item()
-                hidden_or_intermediate_states.tensors["model_forward_time"] = (
-                    torch.tensor(model_forward_time + orig_model_forward_time))
-            return hidden_or_intermediate_states
+        with BatchedSpanManagerAuto(tracer, "model_runner.compute_logits"):
+            if not get_pp_group().is_last_rank:
+                if (self.is_driver_worker
+                        and hidden_or_intermediate_states is not None
+                        and isinstance(hidden_or_intermediate_states, IntermediateTensors)
+                        and self.observability_config is not None
+                        and self.observability_config.collect_model_forward_time):
+                    model_forward_end.synchronize()
+                    model_forward_time = model_forward_start.elapsed_time(
+                        model_forward_end)
+                    orig_model_forward_time = 0.0
+                    if intermediate_tensors is not None:
+                        orig_model_forward_time = intermediate_tensors.tensors.get(
+                            "model_forward_time", torch.tensor(0.0)).item()
+                    hidden_or_intermediate_states.tensors["model_forward_time"] = (
+                        torch.tensor(model_forward_time + orig_model_forward_time))
+                return hidden_or_intermediate_states
 
         logits = self.model.compute_logits(hidden_or_intermediate_states, model_input.sampling_metadata)
 

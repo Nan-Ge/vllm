@@ -419,10 +419,10 @@ def unified_attention_with_output(
     
     tracer = get_tracer_globally("vllm.llm_engine.worker")
     
-    with BatchedSpanManagerAuto(tracer, "load_lv"):
+    with BatchedSpanManagerAuto(tracer, "sync_load_kv"):
         wait_for_kv_layer_from_connector(layer_name)
     
-    with BatchedSpanManagerAuto(tracer, "forward"):
+    with BatchedSpanManagerAuto(tracer, "async_forward"):
         forward_context: ForwardContext = get_forward_context()
         attn_metadata = forward_context.attn_metadata
         if isinstance(attn_metadata, dict):
@@ -439,7 +439,7 @@ def unified_attention_with_output(
             output=output
         )
         
-    with BatchedSpanManagerAuto(tracer, "save_kv"):
+    with BatchedSpanManagerAuto(tracer, "async_save_kv"):
         maybe_save_kv_layer_to_connector(layer_name, kv_cache)
 
 

@@ -113,10 +113,13 @@ class OPTAttention(nn.Module):
         
         qkv, _ = self.qkv_proj(hidden_states)
         q, k, v = qkv.chunk(chunks=3, dim=-1)
-        with BatchedSpanManagerAuto(tracer, "attention_layer"):
+    
+        with BatchedSpanManagerAuto(tracer, "attn_layer"):
             attn_output = self.attn(q, k, v)
-        with BatchedSpanManagerAuto(tracer, "out_proj"):
+            
+        with BatchedSpanManagerAuto(tracer, "output_proj"):
                 output, _ = self.out_proj(attn_output)
+        
         return output
 
 

@@ -1816,7 +1816,6 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
         # In KV cache database setting, it will change the model input so that
         # we can skip prefilling on tokens that successfully received KV caches
         # NOTE: The receive operation is blocking
-        
         with BatchedSpanManagerAuto(tracer, "model_runner.recv_kv"):
             bypass_model_exec = False
             if self.need_recv_kv(model_input, kv_caches):

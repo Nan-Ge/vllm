@@ -41,6 +41,7 @@ from vllm.model_executor.layers.vocab_parallel_embedding import (
 from vllm.model_executor.model_loader.weight_utils import default_weight_loader
 from vllm.model_executor.sampling_metadata import SamplingMetadata
 from vllm.sequence import IntermediateTensors
+from vllm.tracing import BatchedSpanManagerAuto, get_tracer_globally
 
 from .interfaces import SupportsPP
 from .utils import (AutoWeightsLoader, WeightsMapper, is_pp_missing_parameter,
@@ -108,10 +109,14 @@ class OPTAttention(nn.Module):
         self,
         hidden_states: torch.Tensor,
     ) -> torch.Tensor:
+        tracer = get_tracer_globally("vllm.llm_engine.worker")
+        
         qkv, _ = self.qkv_proj(hidden_states)
         q, k, v = qkv.chunk(chunks=3, dim=-1)
-        attn_output = self.attn(q, k, v)
-        output, _ = self.out_proj(attn_output)
+        with BatchedSpanManagerAuto(tracer, "attention_layer"):
+            attn_output = self.attn(q, k, v)
+        with BatchedSpanManagerAuto(tracer, "out_proj"):
+                output, _ = self.out_proj(attn_output)
         return output
 
 

@@ -10,6 +10,7 @@ from vllm.logger import init_logger
 from vllm.utils import run_once
 from vllm.sequence import SequenceGroup, SequenceGroupMetadata, ExecuteModelRequest
 
+
 TRACE_HEADERS = ["traceparent", "tracestate"]
 
 logger = init_logger(__name__)
@@ -224,7 +225,7 @@ class BatchedSpanManager(AbstractContextManager):
         
         # 0）确定调用BatchedSpanManager的上下文
         if self.scheduled_seq_groups is not None: # vLLM主控侧
-            seq_group = next(iter(self.scheduled_seq_group))
+            seq_group = next(iter(self.scheduled_seq_groups)).seq_group
             step_type = "prefill" if seq_group.is_prefill() else "decode"
             seq_group.step_cnt += 1
             span_name = f"{step_type}_{seq_group.step_cnt}"
@@ -240,7 +241,11 @@ class BatchedSpanManager(AbstractContextManager):
                     continue
             
             # 解析 trace headers -> Context -> SpanContext
-            req_ctx = extract_trace_context(seq_group_meta.trace_headers)
+            if call_mode == "controller":
+                req_ctx = extract_trace_context(self.scheduled_seq_groups[idx].seq_group.trace_headers)
+            else:
+                req_ctx = extract_trace_context(seq_group_meta.trace_headers_variant)
+                
             parent_span = get_current_span(req_ctx)  # NonRecordingSpan
             links.append(SpanLink(parent_span.get_span_context()))
             

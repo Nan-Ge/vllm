@@ -1838,8 +1838,7 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
             model_forward_start.record()
 
         if not bypass_model_exec:
-            with set_forward_context(model_input.attn_metadata,
-                                     self.vllm_config, virtual_engine):
+            with set_forward_context(model_input.attn_metadata, self.vllm_config, virtual_engine):
                 hidden_or_intermediate_states = model_executable(
                     input_ids=model_input.input_tokens,
                     inputs_embeds=model_input.inputs_embeds,
@@ -1854,8 +1853,7 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
                     **model_kwargs,
                 )
 
-        if (self.observability_config is not None
-                and self.observability_config.collect_model_forward_time):
+        if (self.observability_config is not None and self.observability_config.collect_model_forward_time):
             model_forward_end.record()
 
         # Sending KV cache in distributed KV cache transfer setting
@@ -1875,8 +1873,7 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
         if not get_pp_group().is_last_rank:
             if (self.is_driver_worker
                     and hidden_or_intermediate_states is not None
-                    and isinstance(hidden_or_intermediate_states,
-                                   IntermediateTensors)
+                    and isinstance(hidden_or_intermediate_states, IntermediateTensors)
                     and self.observability_config is not None
                     and self.observability_config.collect_model_forward_time):
                 model_forward_end.synchronize()
@@ -1890,8 +1887,7 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
                     torch.tensor(model_forward_time + orig_model_forward_time))
             return hidden_or_intermediate_states
 
-        logits = self.model.compute_logits(hidden_or_intermediate_states,
-                                           model_input.sampling_metadata)
+        logits = self.model.compute_logits(hidden_or_intermediate_states, model_input.sampling_metadata)
 
         if self.is_driver_worker:
             if model_input.async_callback is not None:
@@ -1921,8 +1917,7 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
                 # latency from the start time of the driver worker to the end
                 # time of the driver worker. The model forward time will then
                 # end up covering the communication time as well.
-                output.model_forward_time = (orig_model_forward_time +
-                                             model_forward_time)
+                output.model_forward_time = orig_model_forward_time + model_forward_time
 
         if model_input.inputs_embeds is not None:
             if self.is_driver_worker:

@@ -29,7 +29,10 @@
     export OTEL_EXPORTER_OTLP_TRACES_INSECURE=true
     export OTEL_SERVICE_NAME="client-service"
     ```
-- 脚本路径：`examples/online_serving/opentelemetry/dummy_client.py`
+- 脚本路径：
+    ```
+    examples/online_serving/opentelemetry/dummy_client.py
+    ```
 
 ## Server
 

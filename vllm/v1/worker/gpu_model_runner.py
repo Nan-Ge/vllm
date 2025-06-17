@@ -61,6 +61,8 @@ from vllm.v1.worker.lora_model_runner_mixin import LoRAModelRunnerMixin
 from .utils import (gather_mm_placeholders, sanity_check_mm_encoder_outputs,
                     scatter_mm_placeholders)
 
+from vllm.tracing import get_tracer_globally, BatchedSpanManagerAuto
+
 if TYPE_CHECKING:
     import xgrammar as xgr
 
@@ -1123,6 +1125,8 @@ class GPUModelRunner(LoRAModelRunnerMixin):
         scheduler_output: "SchedulerOutput",
         intermediate_tensors: Optional[IntermediateTensors] = None,
     ) -> Union[ModelRunnerOutput, IntermediateTensors]:
+        
+        tracer = get_tracer_globally("vllm.llm_engine.worker")
 
         self._update_states(scheduler_output)
         if not scheduler_output.total_num_scheduled_tokens:
@@ -1203,14 +1207,17 @@ class GPUModelRunner(LoRAModelRunnerMixin):
         with set_forward_context(attn_metadata, self.vllm_config, num_tokens=num_input_tokens):
             self.maybe_setup_kv_connector(scheduler_output)
 
-            model_output = self.model(
-                input_ids=input_ids,
-                positions=positions,
-                intermediate_tensors=intermediate_tensors,
-                inputs_embeds=inputs_embeds,
-            )
-
-            self.maybe_wait_for_kv_save()
+            with BatchedSpanManagerAuto(tracer, "gpu_model_runner.foward"):
+                model_output = self.model(
+                    input_ids=input_ids,
+                    positions=positions,
+                    intermediate_tensors=intermediate_tensors,
+                    inputs_embeds=inputs_embeds,
+                )
+            
+            with BatchedSpanManagerAuto(tracer, "gpu_model_runner.wait_for_kv_save"):
+                self.maybe_wait_for_kv_save()
+            
             finished_sending, finished_recving = (self.get_finished_kv_transfers(scheduler_output))
 
         if self.use_aux_hidden_state_outputs:
@@ -1302,8 +1309,9 @@ class GPUModelRunner(LoRAModelRunnerMixin):
 
         # NOTE: GPU -> CPU Sync happens here.
         # Move as many CPU operations as possible before this sync point.
-        logprobs_tensors = sampler_output.logprobs_tensors
-        logprobs_lists = logprobs_tensors.tolists() if logprobs_tensors is not None else None
+        with BatchedSpanManagerAuto(tracer, "gpu_model_runner.logprobs"):
+            logprobs_tensors = sampler_output.logprobs_tensors
+            logprobs_lists = logprobs_tensors.tolists() if logprobs_tensors is not None else None
 
         # Compute prompt logprobs if needed.
         prompt_logprobs_dict = self._get_prompt_logprobs_dict(

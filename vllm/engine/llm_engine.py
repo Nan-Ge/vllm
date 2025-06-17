@@ -59,7 +59,7 @@ from vllm.utils import (Counter, Device, deprecate_kwargs,
                         resolve_obj_by_qualname, weak_bind)
 from vllm.version import __version__ as VLLM_VERSION
 from vllm.worker.model_runner_base import InputProcessingError
-from vllm.tracing import SpanAttributes, SpanKind, BatchedSpanManager, extract_trace_context, init_tracer_globally
+from vllm.tracing import SpanAttributes, SpanKind, BatchedSpanManagerV0, extract_trace_context, init_tracer_globally
 
 logger = init_logger(__name__)
 _LOCAL_LOGGING_INTERVAL_SEC = 5
@@ -1385,7 +1385,7 @@ class LLMEngine:
 
             try:
                 # 包装execute_model_async，自动管理span开始结束
-                with BatchedSpanManager(
+                with BatchedSpanManagerV0(
                     tracer=self.tracer, 
                     seq_group_metadata_list=seq_group_metadata_list,
                     scheduled_seq_groups=scheduler_outputs.scheduled_seq_groups

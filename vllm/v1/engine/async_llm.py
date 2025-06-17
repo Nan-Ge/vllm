@@ -461,7 +461,10 @@ class AsyncLLM(EngineClient):
         return self.tokenizer.get_lora_tokenizer(lora_request)
 
     async def is_tracing_enabled(self) -> bool:
-        return False
+        if self.vllm_config.observability_config.otlp_traces_endpoint is not None:
+            return True
+        else:
+            return False
 
     async def do_log_stats(
         self,

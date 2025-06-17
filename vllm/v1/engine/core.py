@@ -39,7 +39,7 @@ from vllm.v1.serial_utils import MsgpackDecoder, MsgpackEncoder
 from vllm.v1.structured_output import StructuredOutputManager
 from vllm.version import __version__ as VLLM_VERSION
 
-from vllm.tracing import SpanAttributes, SpanKind, BatchedSpanManager, extract_trace_context, init_tracer_globally
+from vllm.tracing import SpanAttributes, SpanKind, BatchedSpanManagerV1, extract_trace_context, init_tracer_globally
 
 logger = init_logger(__name__)
 
@@ -198,10 +198,11 @@ class EngineCore:
             # Start grammar compilation asynchronously
             self.structured_output_manager.grammar_init(req)
 
-        if req.kv_transfer_params is not None and (
-                not self.scheduler.get_kv_connector()):
-            logger.warning("Got kv_transfer_params, but no KVConnector found. "
-                           "Disabling KVTransfer for this request.")
+        if req.kv_transfer_params is not None and (not self.scheduler.get_kv_connector()):
+            logger.warning(
+                "Got kv_transfer_params, but no KVConnector found. "
+                "Disabling KVTransfer for this request."
+            )
 
         self.scheduler.add_request(req)
 
@@ -233,9 +234,15 @@ class EngineCore:
                 scheduler_stats=self.scheduler.make_stats(),
             )
         scheduler_output = self.scheduler.schedule()
-        model_output = self.execute_model(scheduler_output)
-        engine_core_outputs = self.scheduler.update_from_output(
-            scheduler_output, model_output)  # type: ignore
+        
+        with BatchedSpanManagerV1 (
+            tracer=self.tracer,
+            context="controller",
+            scheduler_output=scheduler_output
+        ):
+            model_output = self.execute_model(scheduler_output)
+        
+        engine_core_outputs = self.scheduler.update_from_output(scheduler_output, model_output)  # type: ignore
 
         return engine_core_outputs
 

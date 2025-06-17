@@ -173,8 +173,7 @@ class OpenAIServingCompletion(OpenAIServing):
                                  lora_request=lora_request,
                                  prompt_adapter_request=prompt_adapter_request)
 
-                trace_headers = (None if raw_request is None else await
-                                 self._get_trace_headers(raw_request.headers))
+                trace_headers = None if raw_request is None else await self._get_trace_headers(raw_request.headers)
 
                 # Mypy inconsistently requires this second cast in different
                 # environments. It shouldn't be necessary (redundant from above)

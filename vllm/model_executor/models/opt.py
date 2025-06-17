@@ -111,13 +111,14 @@ class OPTAttention(nn.Module):
     ) -> torch.Tensor:
         tracer = get_tracer_globally("vllm.llm_engine.worker")
         
-        qkv, _ = self.qkv_proj(hidden_states)
-        q, k, v = qkv.chunk(chunks=3, dim=-1)
+        with BatchedSpanManagerAuto(tracer, "opt_attn.qkv_proj"):
+            qkv, _ = self.qkv_proj(hidden_states)
+            q, k, v = qkv.chunk(chunks=3, dim=-1)
     
-        with BatchedSpanManagerAuto(tracer, "attn_layer"):
+        with BatchedSpanManagerAuto(tracer, "opt_attn.attn"):
             attn_output = self.attn(q, k, v)
             
-        with BatchedSpanManagerAuto(tracer, "output_proj"):
+        with BatchedSpanManagerAuto(tracer, "opt_attn.out_proj"):
                 output, _ = self.out_proj(attn_output)
         
         return output

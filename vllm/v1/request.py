@@ -11,6 +11,8 @@ from vllm.v1.engine import (EngineCoreEvent, EngineCoreEventType,
 from vllm.v1.structured_output.request import StructuredOutputRequest
 from vllm.v1.utils import ConstantList
 
+from collections.abc import Mapping
+
 if TYPE_CHECKING:
     from vllm.lora.request import LoRARequest
 
@@ -30,6 +32,7 @@ class Request:
         lora_request: Optional["LoRARequest"] = None,
         structured_output_request: Optional["StructuredOutputRequest"] = None,
         cache_salt: Optional[str] = None,
+        trace_headers: Optional[Mapping[str, str]] = None
     ) -> None:
         self.request_id = request_id
         self.sampling_params = sampling_params
@@ -53,6 +56,7 @@ class Request:
         self.spec_token_ids: list[int] = []
         self.num_computed_tokens = 0
         self.cache_salt: Optional[str] = cache_salt
+        self.trace_headers: Optional[Mapping[str, str]] = trace_headers
 
         # Multi-modal related
         self.mm_positions = multi_modal_placeholders or []
@@ -98,9 +102,9 @@ class Request:
             eos_token_id=request.eos_token_id,
             arrival_time=request.arrival_time,
             lora_request=request.lora_request,
-            structured_output_request=StructuredOutputRequest(
-                sampling_params=request.sampling_params),
+            structured_output_request=StructuredOutputRequest(sampling_params=request.sampling_params),
             cache_salt=request.cache_salt,
+            trace_headers=request.trace_headers
         )
 
     def append_output_token_ids(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
+from collections.abc import Mapping
 
 if TYPE_CHECKING:
     import numpy as np
@@ -29,6 +30,8 @@ class NewRequestData:
     block_ids: list[list[int]]
     num_computed_tokens: int
     lora_request: Optional[LoRARequest]
+    trace_headers: Optional[Mapping[str, str]]
+    trace_headers_variant: Optional[Mapping[str, str]]
 
     @classmethod
     def from_request(
@@ -46,6 +49,8 @@ class NewRequestData:
             block_ids=block_ids,
             num_computed_tokens=request.num_computed_tokens,
             lora_request=request.lora_request,
+            trace_headers=request.trace_headers,
+            trace_headers_variant=None
         )
 
     def __repr__(self):
@@ -87,6 +92,8 @@ class CachedRequestData:
     new_token_ids: list[int]
     new_block_ids: list[list[int]]
     num_computed_tokens: int
+    trace_headers: Optional[Mapping[str, str]]
+    trace_headers_variant: Optional[Mapping[str, str]]
 
     @classmethod
     def from_request(
@@ -102,6 +109,8 @@ class CachedRequestData:
             new_token_ids=new_token_ids,
             new_block_ids=new_block_ids,
             num_computed_tokens=request.num_computed_tokens,
+            trace_headers=request.trace_headers,
+            trace_headers_variant=None
         )
 
 
@@ -112,6 +121,7 @@ class SchedulerOutput:
     # We cache the request's data in each worker process, so that we don't
     # need to re-send it every scheduling step.
     scheduled_new_reqs: list[NewRequestData]
+    
     # list of the requests that have been scheduled before.
     # Since the request's data is already cached in the worker processes,
     # we only send the diff to minimize the communication cost.
@@ -120,17 +130,21 @@ class SchedulerOutput:
     # req_id -> num_scheduled_tokens
     # Number of tokens scheduled for each request.
     num_scheduled_tokens: dict[str, int]
+    
     # Total number of tokens scheduled for all requests.
     # Equal to sum(num_scheduled_tokens.values())
     total_num_scheduled_tokens: int
+    
     # req_id -> spec_token_ids
     # If a request does not have any spec decode tokens, it will not be
     # included in the dictionary.
     scheduled_spec_decode_tokens: dict[str, list[int]]
+    
     # req_id -> encoder input indices that need processing.
     # E.g., if a request has [0, 1], it could mean the vision encoder needs
     # to process that the request's 0-th and 1-th images in the current step.
     scheduled_encoder_inputs: dict[str, list[int]]
+    
     # Number of common prefix blocks for all requests in each KV cache group.
     # This can be used for cascade attention.
     num_common_prefix_blocks: list[int]
@@ -139,6 +153,7 @@ class SchedulerOutput:
     # steps. This is used to notify the workers about the finished requests
     # so that they can free the cached states for those requests.
     finished_req_ids: set[str]
+    
     # list of (req_id, encoder_input_index) tuples.
     # Used to free the encoder cache.
     free_encoder_input_ids: list[tuple[str, int]]
@@ -146,6 +161,7 @@ class SchedulerOutput:
     # Dict of request ids to their index within the batch
     # for filling the next token bitmask
     structured_output_request_ids: dict[str, int]
+    
     # the bitmask for the whole batch
     grammar_bitmask: Optional[npt.NDArray[np.int32]]
 

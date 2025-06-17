@@ -27,7 +27,7 @@ from vllm.v1.outputs import ModelRunnerOutput
 from vllm.v1.utils import report_usage_stats
 from vllm.v1.worker.gpu_model_runner import GPUModelRunner
 from vllm.v1.worker.worker_base import WorkerBase
-from vllm.tracing import init_tracer_globally
+from vllm.tracing import init_tracer_globally, get_tracer_globally, BatchedSpanManagerV1
 
 logger = init_logger(__name__)
 
@@ -281,8 +281,13 @@ class Worker(WorkerBase):
                 get_pp_group().recv_tensor_dict(
                     all_gather_group=get_tp_group()))
 
-        output = self.model_runner.execute_model(scheduler_output,
-                                                 intermediate_tensors)
+        with BatchedSpanManagerV1 (
+            tracer=get_tracer_globally("vllm.llm_engine.worker"),
+            context="worker",
+            scheduler_output=scheduler_output
+        ):
+            output = self.model_runner.execute_model(scheduler_output, intermediate_tensors)
+            
         parallel_config = self.vllm_config.parallel_config
         if parallel_config.distributed_executor_backend != "external_launcher" \
             and not get_pp_group().is_last_rank:

@@ -24,7 +24,7 @@ from vllm.utils import (enable_trace_function_call_for_thread,
 from vllm.worker.model_runner_base import (BroadcastableModelInput,
                                            ModelRunnerBase,
                                            ModelRunnerInputBase)
-from vllm.tracing import BatchedSpanManager
+from vllm.tracing import BatchedSpanManagerV0
 
 
 logger = init_logger(__name__)
@@ -418,7 +418,7 @@ class LocalOrDistributedWorkerBase(WorkerBase):
                 orig_model_execute_time = intermediate_tensors.tensors.get(
                     "model_execute_time", torch.tensor(0)).item()
         
-        with BatchedSpanManager(
+        with BatchedSpanManagerV0(
             tracer=self.tracer,
             seq_group_metadata_list=execute_model_req.seq_group_metadata_list
         ):

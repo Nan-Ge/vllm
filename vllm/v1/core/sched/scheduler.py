@@ -506,11 +506,7 @@ class Scheduler(SchedulerInterface):
             scheduled_spec_decode_tokens,
         )
         # Construct the scheduler output.
-        new_reqs_data = [
-            NewRequestData.from_request(req,
-                                        req_to_new_block_ids[req.request_id])
-            for req in scheduled_new_reqs
-        ]
+        new_reqs_data = [NewRequestData.from_request(req, req_to_new_block_ids[req.request_id]) for req in scheduled_new_reqs]
         resumed_reqs_data = [
             self._make_cached_request_data(
                 req,
@@ -600,10 +596,7 @@ class Scheduler(SchedulerInterface):
         else:
             # No cached request data, or all cached request data has been
             # used by the scheduled requests.
-            req_data = CachedRequestData.from_request(request,
-                                                      resumed_from_preemption,
-                                                      new_token_ids,
-                                                      new_block_ids)
+            req_data = CachedRequestData.from_request(request, resumed_from_preemption, new_token_ids, new_block_ids)
         return req_data
 
     def _try_schedule_encoder_inputs(

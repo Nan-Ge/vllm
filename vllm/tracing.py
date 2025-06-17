@@ -9,6 +9,7 @@ from contextlib import AbstractContextManager
 from vllm.logger import init_logger
 from vllm.utils import run_once
 from vllm.sequence import SequenceGroup, SequenceGroupMetadata, ExecuteModelRequest
+from vllm.v1.core.sched.output import SchedulerOutput
 
 
 TRACE_HEADERS = ["traceparent", "tracestate"]
@@ -190,7 +191,8 @@ def log_tracing_disabled_warning() -> None:
     logger.warning("Received a request with trace context but tracing is disabled")
 
 
-class BatchedSpanManager(AbstractContextManager):
+# ------------------ OTel for vLLM V0 ------------------
+class BatchedSpanManagerV0(AbstractContextManager):
     """
     - 只创建 1 个 batch-span（代表 GPU-kernel / prefill / decode …）
     - 用 SpanLink 把这一批所有请求的 SpanContext 挂进来
@@ -321,3 +323,128 @@ class BatchedSpanManagerAuto(AbstractContextManager):
 
         if self._attach_token:
             detach(self._attach_token)
+
+
+# ------------------ OTel for vLLM V1 ------------------
+class BatchedSpanManagerV1(AbstractContextManager):
+
+    def __init__(
+        self, 
+        tracer, 
+        context: str,
+        scheduler_output: SchedulerOutput = None
+    ):
+        """
+        Args:
+            tracer (_type_): OTel tracer
+            context (str): 调用Manager的上下文，"controller" or "worker"
+            scheduler_output (SchedulerOutput, optional): 调度器的输出
+        """
+        self.tracer = tracer
+        self.context = context
+        self.scheduler_output = scheduler_output
+
+        self.batch_span = None
+        self._attach_token = None
+
+    def __enter__(self):
+        links = []  # List[SpanLink]
+        rep_ctx = None  # 选一条请求的 ctx 作为代表
+        step_type = None  # ‘p’ or ‘d’
+        span_name = None
+        call_mode = None
+        trace_headers_list = []
+        
+        # 0）确定调用BatchedSpanManager的上下文
+        if self.context == "controller": # vLLM主控侧
+            
+            if len(self.scheduler_output.scheduled_new_reqs) != 0 and len(self.scheduler_output.scheduled_cached_reqs) == 0:
+                step_type = "prefill"
+            elif len(self.scheduler_output.scheduled_new_reqs) == 0 and len(self.scheduler_output.scheduled_cached_reqs) != 0:
+                step_type = "decode"
+            elif len(self.scheduler_output.scheduled_new_reqs) == 0 and len(self.scheduler_output.scheduled_cached_reqs) == 0:
+                return self  # 没有请求，直接返回
+            else:
+                # 如果同时有新请求和缓存请求，说明是混合的 prefill 和 decode 步骤
+                raise ValueError(
+                    "BatchedSpanManagerV1 should not be used for mixed prefill and decode steps."
+                )
+                
+            span_name = step_type
+            
+        elif self.context == "worker": # vLLM Worker侧
+            span_name = f"worker_execute_model"
+        
+        else:
+            raise ValueError(
+                f"Invalid context '{self.context}'. Expected 'controller' or 'worker'."
+            )
+            
+        # 1）收集所有请求的trace_headers
+        if self.context == "controller":
+            for req in self.scheduler_output.scheduled_new_reqs:
+                trace_headers_list.append(req.trace_headers)
+            
+            for req in self.scheduler_output.scheduled_cached_reqs:
+                trace_headers_list.append(req.trace_headers)
+        
+        elif self.context == "worker":
+            for req in self.scheduler_output.scheduled_new_reqs:
+                trace_headers_list.append(req.trace_headers_variant)
+            
+            for req in self.scheduler_output.scheduled_cached_reqs:
+                trace_headers_list.append(req.trace_headers_variant)
+        
+        # 2) 收集所有请求的 SpanContext → SpanLink
+        for tr_hdr in trace_headers_list: 
+            # 解析 trace headers -> Context -> SpanContext
+            req_ctx = extract_trace_context(tr_hdr)
+            parent_span = get_current_span(req_ctx)  # NonRecordingSpan
+            links.append(SpanLink(parent_span.get_span_context()))
+            
+            # 选第一条请求的 ctx 做代表，以便 batch-span 与它同 trace-id
+            if rep_ctx is None:
+                rep_ctx = req_ctx
+
+        # 如果这一批里所有请求都已结束，直接 return self
+        if rep_ctx is None:
+            return self
+
+        # 3) 创建一个batch-span，挂上所有 links
+        self.batch_span = self.tracer.start_span(
+            name=span_name,
+            context=rep_ctx,  # 把代表 ctx 放 parent 位
+            links=links,  # 把其余请求挂 Link
+            kind=SpanKind.SERVER,
+            start_time=time.time_ns(),
+            attributes={
+                "batch.size": len(links)
+            }
+        )
+        
+        self._attach_token = attach(set_span_in_context(self.batch_span)) # 激活 batch-span 上下文
+
+        # 4) 把新的 trace headers，写回 scheduler_output，传递给下游 Worker
+        # 注意，这里会把所有的请求的父span设置为当前的batch-span，然后发送给Worker
+        new_headers = {}
+        inject(new_headers)  # 默认从“当前”Context 取 parent= batch-span
+        
+        for req in self.scheduler_output.scheduled_new_reqs:
+            req.trace_headers_variant = new_headers
+        
+        for req in self.scheduler_output.scheduled_cached_reqs:
+            req.trace_headers_variant = new_headers
+        
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.batch_span:
+            self.batch_span.end(end_time=time.time_ns())
+
+        # 注意，在vLLM主控侧恢复ContextVar stack没有意义:
+        # 1. vLLM主控循环有多层嵌套的函数调用，但是我们只关心execute_model这一层，所以BatchedSpanManager不会被嵌套调用
+        # 2. 在__enter__函数中，是从seq_group获取的trace_headers，而不是从inject
+        if self._attach_token:
+            detach(self._attach_token)
+            
+

@@ -49,7 +49,6 @@ from vllm.sequence import (ExecuteModelRequest, ParallelSampleSequenceGroup,
                            PoolingSequenceGroupOutput, Sequence, SequenceGroup,
                            SequenceGroupBase, SequenceGroupMetadata,
                            SequenceGroupOutput, SequenceStatus)
-from vllm.tracing import SpanAttributes, SpanKind, extract_trace_context, init_tracer_globally
 from vllm.transformers_utils.detokenizer import Detokenizer
 from vllm.transformers_utils.tokenizer import AnyTokenizer
 from vllm.transformers_utils.tokenizer_group import (
@@ -60,8 +59,7 @@ from vllm.utils import (Counter, Device, deprecate_kwargs,
                         resolve_obj_by_qualname, weak_bind)
 from vllm.version import __version__ as VLLM_VERSION
 from vllm.worker.model_runner_base import InputProcessingError
-
-from vllm.tracing import BatchedSpanManager
+from vllm.tracing import SpanAttributes, SpanKind, BatchedSpanManager, extract_trace_context, init_tracer_globally
 
 logger = init_logger(__name__)
 _LOCAL_LOGGING_INTERVAL_SEC = 5
@@ -376,7 +374,7 @@ class LLMEngine:
                                                      self.cache_config)
 
         self.tracer = None
-        print("[Testing OpenTelemetry tracing]")
+        logger.info("Initializing OpenTelemetry tracer V0 [vllm.llm_engine]")
         if self.observability_config.otlp_traces_endpoint:
             self.tracer = init_tracer_globally(
                 "vllm.llm_engine",

@@ -123,11 +123,10 @@ class Worker(LocalOrDistributedWorkerBase):
             self.profiler = None
         
         # OpenTelemetry tracing
-        self.observability_config = vllm_config.observability_config
-        if self.observability_config.otlp_traces_endpoint:
-            self.tracer = init_tracer_globally(
+        if vllm_config.observability_config.otlp_traces_endpoint:
+            init_tracer_globally(
                 "vllm.llm_engine.worker",
-                self.observability_config.otlp_traces_endpoint
+                vllm_config.observability_config.otlp_traces_endpoint
             )
 
     def start_profile(self):

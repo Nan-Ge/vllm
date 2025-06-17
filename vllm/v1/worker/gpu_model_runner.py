@@ -1200,9 +1200,7 @@ class GPUModelRunner(LoRAModelRunnerMixin):
 
         # Run the decoder.
         # Use persistent buffers for CUDA graphs.
-        with set_forward_context(attn_metadata,
-                                 self.vllm_config,
-                                 num_tokens=num_input_tokens):
+        with set_forward_context(attn_metadata, self.vllm_config, num_tokens=num_input_tokens):
             self.maybe_setup_kv_connector(scheduler_output)
 
             model_output = self.model(
@@ -1213,13 +1211,13 @@ class GPUModelRunner(LoRAModelRunnerMixin):
             )
 
             self.maybe_wait_for_kv_save()
-            finished_sending, finished_recving = (
-                self.get_finished_kv_transfers(scheduler_output))
+            finished_sending, finished_recving = (self.get_finished_kv_transfers(scheduler_output))
 
         if self.use_aux_hidden_state_outputs:
             hidden_states, aux_hidden_states = model_output
         else:
             hidden_states = model_output
+        
         # Broadcast PP output for external_launcher (torchrun)
         # to make sure we are synced across pp ranks
         # TODO: Support overlapping mirco-batches
@@ -1305,8 +1303,7 @@ class GPUModelRunner(LoRAModelRunnerMixin):
         # NOTE: GPU -> CPU Sync happens here.
         # Move as many CPU operations as possible before this sync point.
         logprobs_tensors = sampler_output.logprobs_tensors
-        logprobs_lists = logprobs_tensors.tolists() \
-            if logprobs_tensors is not None else None
+        logprobs_lists = logprobs_tensors.tolists() if logprobs_tensors is not None else None
 
         # Compute prompt logprobs if needed.
         prompt_logprobs_dict = self._get_prompt_logprobs_dict(

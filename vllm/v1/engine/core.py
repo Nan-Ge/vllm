@@ -39,6 +39,8 @@ from vllm.v1.serial_utils import MsgpackDecoder, MsgpackEncoder
 from vllm.v1.structured_output import StructuredOutputManager
 from vllm.version import __version__ as VLLM_VERSION
 
+from vllm.tracing import SpanAttributes, SpanKind, BatchedSpanManager, extract_trace_context, init_tracer_globally
+
 logger = init_logger(__name__)
 
 POLLING_TIMEOUT_S = 2.5
@@ -124,6 +126,16 @@ class EngineCore:
                         self.batch_queue_size)
             self.batch_queue = queue.Queue(self.batch_queue_size)
         self.vllm_config = vllm_config
+        
+        # Initialize OTel tracer
+        self.tracer = None
+        logger.info("Initializing OpenTelemetry tracer V1 [vllm.llm_engine]")
+        if self.vllm_config.observability_config.otlp_traces_endpoint:
+            self.tracer = init_tracer_globally(
+                "vllm.llm_engine",
+                self.vllm_config.observability_config.otlp_traces_endpoint
+            )
+        
 
     def _initialize_kv_caches(
             self, vllm_config: VllmConfig) -> tuple[int, int, KVCacheConfig]:
@@ -199,16 +211,14 @@ class EngineCore:
         # TODO: The scheduler doesn't really need to know the
         # specific finish reason, TBD whether we propagate that
         # (i.e. client-aborted vs stop criteria met).
-        self.scheduler.finish_requests(request_ids,
-                                       RequestStatus.FINISHED_ABORTED)
+        self.scheduler.finish_requests(request_ids, RequestStatus.FINISHED_ABORTED)
 
     def execute_model(self, scheduler_output: SchedulerOutput):
         try:
             return self.model_executor.execute_model(scheduler_output)
         except BaseException as err:
             # NOTE: This method is exception-free
-            dump_engine_exception(self.vllm_config, scheduler_output,
-                                  self.scheduler.make_stats())
+            dump_engine_exception(self.vllm_config, scheduler_output, self.scheduler.make_stats())
             # Re-raise exception
             raise err
 
@@ -257,8 +267,7 @@ class EngineCore:
                 self.batch_queue.put_nowait(
                     (future, scheduler_output))  # type: ignore
 
-        scheduled_batch = (scheduler_output is not None
-                           and scheduler_output.total_num_scheduled_tokens > 0)
+        scheduled_batch = scheduler_output is not None and scheduler_output.total_num_scheduled_tokens > 0
 
         # If no more requests can be scheduled and the job queue is not empty,
         # block until the first batch in the job queue is finished.

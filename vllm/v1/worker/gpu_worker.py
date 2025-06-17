@@ -27,6 +27,7 @@ from vllm.v1.outputs import ModelRunnerOutput
 from vllm.v1.utils import report_usage_stats
 from vllm.v1.worker.gpu_model_runner import GPUModelRunner
 from vllm.v1.worker.worker_base import WorkerBase
+from vllm.tracing import init_tracer_globally
 
 logger = init_logger(__name__)
 
@@ -76,6 +77,13 @@ class Worker(WorkerBase):
                     torch_profiler_trace_dir, use_gzip=True))
         else:
             self.profiler = None
+        
+        # Initiative OTel tracer
+        if vllm_config.observability_config.otlp_traces_endpoint:
+            init_tracer_globally(
+                "vllm.llm_engine.worker",
+                vllm_config.observability_config.otlp_traces_endpoint
+            )
 
     def sleep(self, level: int = 1) -> None:
         free_bytes_before_sleep = torch.cuda.mem_get_info()[0]
